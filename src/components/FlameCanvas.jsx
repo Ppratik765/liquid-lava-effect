@@ -78,8 +78,8 @@ export default function FlameCanvas() {
           d.x *= aspect;
           float len = length(d);
           
-          if(len < 0.058) {
-             float heat = smoothstep(0.058, 0.0, len);
+          if(len < 0.068) {
+             float heat = smoothstep(0.068, 0.0, len);
              diff += heat * 0.7 * mouse.z; 
           }
 
