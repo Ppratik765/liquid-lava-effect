@@ -70,7 +70,7 @@ export default function FlameCanvas() {
           float avg = (top + bottom + left + right + center) / 5.0;
           float diff = mix(center, avg, 0.6); // Viscosity
 
-          diff *= 0.995; // Cooling
+          diff *= 0.997; // Cooling
           diff -= 0.001;
 
           vec2 m = mouse.xy;
@@ -80,7 +80,7 @@ export default function FlameCanvas() {
           
           if(len < 0.058) {
              float heat = smoothstep(0.058, 0.0, len);
-             diff += heat * 0.6 * mouse.z; 
+             diff += heat * 0.7 * mouse.z; 
           }
 
           // Write to Red channel, Alpha must be 1.0
