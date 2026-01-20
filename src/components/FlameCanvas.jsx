@@ -17,22 +17,21 @@ export default function FlameCanvas() {
       depth: false
     });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap pixel ratio for performance
     renderer.setClearColor(0x000000, 0);
     mountRef.current.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
+    // 2. Render Targets (Mobile Compatible)
     const simRes = 256; 
-
-    // 2. Render Targets
     const createRT = () =>
       new THREE.WebGLRenderTarget(simRes, simRes, {
-        type: THREE.FloatType,
+        type: THREE.HalfFloatType, // FIXED: HalfFloat is supported on mobile
+        format: THREE.RGBAFormat,  // FIXED: RGBA is safer than RedFormat on mobile
         minFilter: THREE.LinearFilter,
         magFilter: THREE.LinearFilter,
-        format: THREE.RedFormat,
       });
 
     let targetA = createRT();
@@ -51,9 +50,10 @@ export default function FlameCanvas() {
         void main() { vUv = uv; gl_Position = vec4(position, 1.0); }
       `,
       fragmentShader: `
+        precision highp float; // FIXED: Force high precision for mobile
         varying vec2 vUv;
         uniform sampler2D prev;
-        uniform vec3 mouse; // x, y, isDrawing
+        uniform vec3 mouse;
         uniform vec2 resolution;
         uniform float aspect;
 
@@ -78,12 +78,12 @@ export default function FlameCanvas() {
           d.x *= aspect;
           float len = length(d);
           
-          if(len < 0.08) {
-             float heat = smoothstep(0.08, 0.0, len);
-             // Multiply heat by mouse.z (1.0 = Draw, 0.0 = No Draw)
+          if(len < 0.058) {
+             float heat = smoothstep(0.058, 0.0, len);
              diff += heat * 0.8 * mouse.z; 
           }
 
+          // Write to Red channel, Alpha must be 1.0
           gl_FragColor = vec4(max(diff, 0.0), 0.0, 0.0, 1.0);
         }
       `,
@@ -100,6 +100,7 @@ export default function FlameCanvas() {
         void main() { vUv = uv; gl_Position = vec4(position, 1.0); }
       `,
       fragmentShader: `
+        precision highp float;
         varying vec2 vUv;
         uniform sampler2D tex;
         uniform float time;
@@ -167,7 +168,6 @@ export default function FlameCanvas() {
       // Simulation
       mesh.material = simMat;
       simMat.uniforms.prev.value = targetA.texture;
-      // Pass mouse.z (drawing state) to shader
       simMat.uniforms.mouse.value.set(mouse.current.x, 1.0 - mouse.current.y, mouse.current.z);
       
       renderer.setRenderTarget(targetB);
@@ -199,21 +199,16 @@ export default function FlameCanvas() {
         simMat.uniforms.aspect.value = w / h;
     }
 
-    // Mouse Movement
     function onMouseMove(e) {
       mouse.current.x = e.clientX / window.innerWidth;
       mouse.current.y = e.clientY / window.innerHeight;
     }
 
-    // Mouse Click (Pen Up/Down Logic)
     function onMouseDown(e) {
-      // Left Click (0) = Pen Down
       if (e.button === 0) mouse.current.z = 1.0;
-      // Right Click (2) = Pen Up
       if (e.button === 2) mouse.current.z = 0.0;
     }
 
-    // Prevent Context Menu on Right Click
     function onContextMenu(e) {
       e.preventDefault();
     }
@@ -228,9 +223,8 @@ export default function FlameCanvas() {
     }
 
     function onTouchStart(e) {
-        // Prevent scrolling while drawing
         if (e.cancelable) e.preventDefault(); 
-        mouse.current.z = 1.0; // Start Drawing
+        mouse.current.z = 1.0; 
         updateTouch(e);
     }
 
@@ -240,16 +234,15 @@ export default function FlameCanvas() {
     }
 
     function onTouchEnd(e) {
-        mouse.current.z = 0.0; // Stop Drawing
+        mouse.current.z = 0.0;
     }
 
-    // Add Listeners
     window.addEventListener("resize", onResize);
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mousedown", onMouseDown);
     window.addEventListener("contextmenu", onContextMenu);
     
-    // Add Passive: false to allow preventing default scroll behavior
+    // Add passive: false to prevent scrolling
     window.addEventListener("touchstart", onTouchStart, { passive: false });
     window.addEventListener("touchmove", onTouchMove, { passive: false });
     window.addEventListener("touchend", onTouchEnd);
