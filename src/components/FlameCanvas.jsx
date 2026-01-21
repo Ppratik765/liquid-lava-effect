@@ -17,19 +17,19 @@ export default function FlameCanvas() {
       depth: false
     });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap pixel ratio for performance
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setClearColor(0x000000, 0);
     mountRef.current.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
-    // 2. Render Targets (Mobile Compatible)
+    // 2. Render Targets
     const simRes = 256; 
     const createRT = () =>
       new THREE.WebGLRenderTarget(simRes, simRes, {
-        type: THREE.HalfFloatType, // FIXED: HalfFloat is supported on mobile
-        format: THREE.RGBAFormat,  // FIXED: RGBA is safer than RedFormat on mobile
+        type: THREE.HalfFloatType,
+        format: THREE.RGBAFormat,
         minFilter: THREE.LinearFilter,
         magFilter: THREE.LinearFilter,
       });
@@ -50,7 +50,7 @@ export default function FlameCanvas() {
         void main() { vUv = uv; gl_Position = vec4(position, 1.0); }
       `,
       fragmentShader: `
-        precision highp float; // FIXED: Force high precision for mobile
+        precision highp float;
         varying vec2 vUv;
         uniform sampler2D prev;
         uniform vec3 mouse;
@@ -70,20 +70,19 @@ export default function FlameCanvas() {
           float avg = (top + bottom + left + right + center) / 5.0;
           float diff = mix(center, avg, 0.6); // Viscosity
 
-          diff *= 0.997; // Cooling
-          diff -= 0.001;
+          diff *= 0.99;  // Cooling Speed
+          diff -= 0.002; // Dissipation
 
           vec2 m = mouse.xy;
           vec2 d = uv - m;
           d.x *= aspect;
           float len = length(d);
           
-          if(len < 0.068) {
-             float heat = smoothstep(0.068, 0.0, len);
-             diff += heat * 0.7 * mouse.z; 
+          if(len < 0.08) {
+             float heat = smoothstep(0.08, 0.0, len);
+             diff += heat * 0.8 * mouse.z; 
           }
 
-          // Write to Red channel, Alpha must be 1.0
           gl_FragColor = vec4(max(diff, 0.0), 0.0, 0.0, 1.0);
         }
       `,
@@ -116,31 +115,38 @@ export default function FlameCanvas() {
 
         void main() {
           float heat = texture2D(tex, vUv).r;
-          if (heat < 0.005) discard;
+          if (heat < 0.01) discard;
 
-          float n = noise(vUv * 8.0 + vec2(time * 0.15, time * 0.05));
-          float texHeat = heat + (n * 0.03) - 0.01;
+          // Stronger Noise for "Crust" effect
+          float n = noise(vUv * 12.0 + vec2(time * 0.1, time * 0.05));
+          
+          // Subtract noise from heat to create "rocky" dark patches
+          float texHeat = heat - (n * 0.2); 
 
           vec3 color = vec3(0.0);
           float alpha = 1.0;
 
-          vec3 crust = vec3(0.2, 0.02, 0.02);
-          vec3 red = vec3(0.8, 0.1, 0.05);
-          vec3 orange = vec3(1.0, 0.45, 0.0);
-          vec3 yellow = vec3(1.0, 0.85, 0.2);
-          vec3 white = vec3(1.0, 1.0, 1.0);
+          // NEW PALETTE: Darker crust, deeper reds
+          vec3 crust = vec3(0.05, 0.0, 0.0);   // Almost black (Charred Rock)
+          vec3 magma = vec3(0.5, 0.05, 0.0);   // Deep Dark Red
+          vec3 lava  = vec3(1.0, 0.3, 0.0);    // Orange/Red
+          vec3 core  = vec3(1.0, 0.8, 0.2);    // Yellow Bright
+          vec3 white = vec3(1.0, 1.0, 1.0);    // Blinding White
 
-          if (texHeat < 0.05) {
-             color = mix(vec3(0.0), crust, smoothstep(0.0, 0.05, texHeat));
-             alpha = smoothstep(0.0, 0.05, texHeat);
-          } else if (texHeat < 0.3) {
-             color = mix(crust, red, (texHeat - 0.05) / 0.25);
-          } else if (texHeat < 0.6) {
-             color = mix(red, orange, (texHeat - 0.3) / 0.3);
-          } else if (texHeat < 0.9) {
-             color = mix(orange, yellow, (texHeat - 0.6) / 0.3);
+          // Thresholds adjusted for "Molten" look
+          if (texHeat < 0.15) {
+             // Cooling Crust Phase (Black/Dark Red)
+             color = mix(crust, magma, smoothstep(0.0, 0.15, texHeat));
+             alpha = smoothstep(0.0, 0.1, texHeat); 
+          } else if (texHeat < 0.4) {
+             // Magma Phase (Deep Red)
+             color = mix(magma, lava, (texHeat - 0.15) / 0.25);
+          } else if (texHeat < 0.7) {
+             // Lava Phase (Orange)
+             color = mix(lava, core, (texHeat - 0.4) / 0.3);
           } else {
-             color = mix(yellow, white, clamp((texHeat - 0.9) / 0.5, 0.0, 1.0));
+             // Core Phase (Yellow -> White)
+             color = mix(core, white, clamp((texHeat - 0.7) / 0.3, 0.0, 1.0));
           }
 
           gl_FragColor = vec4(color, alpha);
@@ -157,9 +163,9 @@ export default function FlameCanvas() {
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
     composer.addPass(new EffectPass(camera, new BloomEffect({
-        intensity: 2.5,
-        luminanceThreshold: 0.1,
-        radius: 0.8 
+        intensity: 2.0,       // Slightly lower intensity
+        luminanceThreshold: 0.3, // HIGHER threshold: Only the yellow/orange centers glow, not the red crust.
+        radius: 0.6 
     })));
 
     function animate(t) {
@@ -213,7 +219,6 @@ export default function FlameCanvas() {
       e.preventDefault();
     }
 
-    // Touch Support
     function updateTouch(e) {
         if(e.touches.length > 0) {
             const touch = e.touches[0];
@@ -242,7 +247,6 @@ export default function FlameCanvas() {
     window.addEventListener("mousedown", onMouseDown);
     window.addEventListener("contextmenu", onContextMenu);
     
-    // Add passive: false to prevent scrolling
     window.addEventListener("touchstart", onTouchStart, { passive: false });
     window.addEventListener("touchmove", onTouchMove, { passive: false });
     window.addEventListener("touchend", onTouchEnd);
