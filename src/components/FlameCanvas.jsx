@@ -79,8 +79,8 @@ export default function FlameCanvas() {
           d.x *= aspect;
           float len = length(d);
           
-          if(len < 0.06) {
-             float heat = smoothstep(0.06, 0.0, len);
+          if(len < 0.068) {
+             float heat = smoothstep(0.068, 0.0, len);
              diff += heat * 0.8 * mouse.z; 
           }
 
@@ -190,9 +190,9 @@ export default function FlameCanvas() {
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
     composer.addPass(new EffectPass(camera, new BloomEffect({
-        intensity: 2.0,
-        luminanceThreshold: 0.2, // Only glow the hot parts
-        radius: 0.6
+        intensity: 3.0,
+        luminanceThreshold: 0.1, // Only glow the hot parts
+        radius: 0.9
     })));
 
     function animate(t) {
