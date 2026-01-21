@@ -37,7 +37,7 @@ export default function FlameCanvas() {
     let targetA = createRT();
     let targetB = createRT();
 
-    // 3. Simulation Shader (Physics)
+    // 3. Simulation Shader (Physics - Preserved "Faster Cooling")
     const simMat = new THREE.ShaderMaterial({
       uniforms: {
         prev: { value: targetA.texture },
@@ -70,8 +70,9 @@ export default function FlameCanvas() {
           float avg = (top + bottom + left + right + center) / 5.0;
           float diff = mix(center, avg, 0.6); // Viscosity
 
-          diff *= 0.99;  // Cooling Speed
-          diff -= 0.002; // Dissipation
+          // Faster Cooling Settings
+          diff *= 0.98;  
+          diff -= 0.003; 
 
           vec2 m = mouse.xy;
           vec2 d = uv - m;
@@ -88,11 +89,12 @@ export default function FlameCanvas() {
       `,
     });
 
-    // 4. Display Shader (Visuals)
+    // 4. Display Shader (Visuals - UPGRADED for 3D Look)
     const displayMat = new THREE.ShaderMaterial({
       uniforms: {
         tex: { value: targetA.texture },
         time: { value: 0 },
+        resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) } // Passed screen res for normal calc
       },
       vertexShader: `
         varying vec2 vUv;
@@ -103,6 +105,7 @@ export default function FlameCanvas() {
         varying vec2 vUv;
         uniform sampler2D tex;
         uniform float time;
+        uniform vec2 resolution;
 
         float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
         float noise(vec2 p) {
@@ -113,43 +116,68 @@ export default function FlameCanvas() {
                        mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
         }
 
+        // Fractal Noise for crust detail
+        float fbm(vec2 p) {
+            float v = 0.0;
+            v += noise(p) * 0.5;
+            v += noise(p * 2.0) * 0.25;
+            v += noise(p * 4.0) * 0.125;
+            return v;
+        }
+
         void main() {
           float heat = texture2D(tex, vUv).r;
-          if (heat < 0.01) discard;
+          if (heat < 0.005) discard;
 
-          // Stronger Noise for "Crust" effect
-          float n = noise(vUv * 12.0 + vec2(time * 0.1, time * 0.05));
+          // 1. Calculate Pseudo-3D Normals (Bump Map)
+          vec2 px = 1.0 / resolution;
+          float hRight = texture2D(tex, vUv + vec2(px.x * 2.0, 0.0)).r;
+          float hUp = texture2D(tex, vUv + vec2(0.0, px.y * 2.0)).r;
           
-          // Subtract noise from heat to create "rocky" dark patches
-          float texHeat = heat - (n * 0.2); 
+          // The "slope" of the lava
+          float dX = (heat - hRight) * 30.0; // 30.0 = Surface Steepness
+          float dY = (heat - hUp) * 30.0;
+          vec3 normal = normalize(vec3(dX, dY, 1.0));
+
+          // 2. Lighting Simulation
+          vec3 lightDir = normalize(vec3(-0.5, 0.5, 1.0)); // Light from top-left
+          float diffuse = max(dot(normal, lightDir), 0.0);
+          float specular = pow(max(dot(reflect(-lightDir, normal), vec3(0,0,1)), 0.0), 16.0); // Wetness/Gloss
+
+          // 3. Texture & Color
+          // Sharp noise for "crust" chunks
+          float n = fbm(vUv * 6.0 + vec2(time * 0.1, time * 0.05));
+          
+          // Darken the heat value with noise to create "rocks"
+          float rockHeat = heat - (n * 0.2); 
 
           vec3 color = vec3(0.0);
-          float alpha = 1.0;
+          
+          // Color Palette
+          vec3 rock = vec3(0.05, 0.02, 0.02); // Almost black crust
+          vec3 dullRed = vec3(0.4, 0.05, 0.0);
+          vec3 brightRed = vec3(0.9, 0.1, 0.0);
+          vec3 orange = vec3(1.0, 0.5, 0.0);
+          vec3 yellow = vec3(1.0, 0.9, 0.2);
 
-          // NEW PALETTE: Darker crust, deeper reds
-          vec3 crust = vec3(0.05, 0.0, 0.0);   // Almost black (Charred Rock)
-          vec3 magma = vec3(0.5, 0.05, 0.0);   // Deep Dark Red
-          vec3 lava  = vec3(1.0, 0.3, 0.0);    // Orange/Red
-          vec3 core  = vec3(1.0, 0.8, 0.2);    // Yellow Bright
-          vec3 white = vec3(1.0, 1.0, 1.0);    // Blinding White
-
-          // Thresholds adjusted for "Molten" look
-          if (texHeat < 0.15) {
-             // Cooling Crust Phase (Black/Dark Red)
-             color = mix(crust, magma, smoothstep(0.0, 0.15, texHeat));
-             alpha = smoothstep(0.0, 0.1, texHeat); 
-          } else if (texHeat < 0.4) {
-             // Magma Phase (Deep Red)
-             color = mix(magma, lava, (texHeat - 0.15) / 0.25);
-          } else if (texHeat < 0.7) {
-             // Lava Phase (Orange)
-             color = mix(lava, core, (texHeat - 0.4) / 0.3);
+          if (rockHeat < 0.15) {
+              color = mix(rock, dullRed, smoothstep(0.0, 0.15, rockHeat));
+          } else if (rockHeat < 0.4) {
+              color = mix(dullRed, brightRed, (rockHeat - 0.15) / 0.25);
+          } else if (rockHeat < 0.7) {
+              color = mix(brightRed, orange, (rockHeat - 0.4) / 0.3);
           } else {
-             // Core Phase (Yellow -> White)
-             color = mix(core, white, clamp((texHeat - 0.7) / 0.3, 0.0, 1.0));
+              color = mix(orange, yellow, clamp((rockHeat - 0.7) / 0.3, 0.0, 1.0));
           }
 
-          gl_FragColor = vec4(color, alpha);
+          // 4. Apply Lighting
+          // Shadow darkens the rock/red parts more
+          color *= (0.6 + 0.4 * diffuse); 
+          
+          // Specular highlight adds "white/yellow" shine to hot areas
+          color += specular * 0.4 * smoothstep(0.2, 1.0, heat); 
+
+          gl_FragColor = vec4(color, 1.0);
         }
       `,
       transparent: true,
@@ -163,8 +191,8 @@ export default function FlameCanvas() {
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
     composer.addPass(new EffectPass(camera, new BloomEffect({
-        intensity: 2.0,       // Slightly lower intensity
-        luminanceThreshold: 0.3, // HIGHER threshold: Only the yellow/orange centers glow, not the red crust.
+        intensity: 2.0,
+        luminanceThreshold: 0.2,
         radius: 0.6 
     })));
 
@@ -203,6 +231,8 @@ export default function FlameCanvas() {
         renderer.setSize(w, h);
         composer.setSize(w, h);
         simMat.uniforms.aspect.value = w / h;
+        // Update display shader resolution for correct lighting calc
+        displayMat.uniforms.resolution.value.set(w, h); 
     }
 
     function onMouseMove(e) {
